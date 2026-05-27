@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>学习打卡日历 - 任务管理</title>
+  <!-- 引入图标和图表库 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+  <!-- Tailwind 配置 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#4F46E5',
+            secondary: '#10B981',
+            accent: '#F59E0B',
+            neutral: '#6B7280',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui'],
+          },
+        },
+      }
+    }
+  </script>
+  
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .calendar-day {
+        @apply aspect-square p-1 md:p-2 border border-gray-100 rounded-lg flex flex-col;
+      }
+      .calendar-day-active {
+        @apply bg-blue-50 border-primary/30;
+      }
+      .tag {
+        @apply text-[10px] md:text-xs px-1 py-0.5 rounded truncate;
+      }
+      .card-shadow {
+        @apply shadow-md hover:shadow-lg transition-shadow duration-300;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+  <div class="container mx-auto px-4 py-6 max-w-7xl">
+    <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-6 flex items-center justify-center gap-2">
+      <i class="fa fa-calendar-check-o text-primary"></i>学习打卡日历
+    </h1>
+    
+    <!-- 第一排：日历 + 当日打卡统计 + 项目时长统计 -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+      <!-- 日历模块 -->
+      <div class="lg:col-span-6 bg-white rounded-xl p-4 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+            <i class="fa fa-calendar text-primary"></i><span id="currentMonth">2024年5月</span>
+          </h2>
+          <div class="flex gap-2">
+            <button id="prevMonth" class="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors">
+              <i class="fa fa-chevron-left"></i>
+            </button>
+            <button id="nextMonth" class="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors">
+              <i class="fa fa-chevron-right"></i>
+            </button>
+          </div>
+        </div>
+        
+        <!-- 星期头部 -->
+        <div class="grid grid-cols-7 gap-1 mb-2 text-center">
+          <div class="text-sm font-medium text-red-500">日</div>
+          <div class="text-sm font-medium text-gray-600">一</div>
+          <div class="text-sm font-medium text-gray-600">二</div>
+          <div class="text-sm font-medium text-gray-600">三</div>
+          <div class="text-sm font-medium text-gray-600">四</div>
+          <div class="text-sm font-medium text-gray-600">五</div>
+          <div class="text-sm font-medium text-red-500">六</div>
+        </div>
+        
+        <!-- 日历网格 -->
+        <div id="calendarGrid" class="grid grid-cols-7 gap-1">
+          <!-- 日历内容由JS生成 -->
+        </div>
+        
+        <!-- 打卡弹窗 -->
+        <div id="checkModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+          <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-semibold mb-4" id="modalDate">打卡</h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">学习项目</label>
+                <select id="studyItem" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none">
+                  <option value="英语">英语</option>
+                  <option value="数学">数学</option>
+                  <option value="计算机二级">计算机二级</option>
+                  <option value="经济学原理">经济学原理</option>
+                  <option value="财务管理论文">财务管理论文</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">学习时长（分钟）</label>
+                <input type="number" id="studyDuration" min="1" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="请输入时长">
+              </div>
+              <div class="flex gap-2 mt-4">
+                <button id="cancelCheck" class="flex-1 p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors">取消</button>
+                <button id="confirmCheck" class="flex-1 p-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">确认打卡</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 当日打卡统计 -->
+      <div class="lg:col-span-3 bg-white rounded-xl p-4 card-shadow">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <i class="fa fa-bar-chart text-secondary"></i>当日打卡统计
+        </h2>
+        <div class="text-center mb-4">
+          <p class="text-gray-600 text-sm">今日</p>
+          <p id="todayDate" class="text-lg font-medium text-gray-800">2024-05-20</p>
+        </div>
+        
+        <div class="space-y-4">
+          <div class="p-3 bg-gray-50 rounded-lg">
+            <p class="text-sm text-gray-600">总打卡时长</p>
+            <p id="todayTotalDuration" class="text-xl font-bold text-primary">0 分钟</p>
+          </div>
+          
+          <div class="h-48">
+            <canvas id="utilizationChart"></canvas>
+          </div>
+          
+          <div class="text-center text-sm text-gray-500">
+            <p>时间利用率</p>
+            <p id="utilizationPercent" class="text-lg font-semibold text-accent">0%</p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 项目时长统计（最右侧） -->
+      <div class="lg:col-span-3 bg-white rounded-xl p-4 card-shadow">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <i class="fa fa-line-chart text-accent"></i>项目时长统计
+        </h2>
+        
+        <div class="space-y-3 mb-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+            <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-lg text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+            <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-lg text-sm">
+          </div>
+          <button id="searchStats" class="w-full p-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors text-sm">
+            查询统计
+          </button>
+        </div>
+        
+        <div id="statsResult" class="space-y-2 max-h-64 overflow-y-auto pr-1">
+          <p class="text-gray-500 text-sm text-center">请选择日期范围查询</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 第二排：每日任务 + 月任务目标 -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+      <!-- 每日任务 -->
+      <div class="lg:col-span-6 bg-white rounded-xl p-4 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+            <i class="fa fa-list-check text-secondary"></i>每日任务
+          </h2>
+          <button id="addDailyTask" class="p-2 bg-secondary text-white rounded-lg hover:bg-secondary/90 transition-colors text-sm flex items-center gap-1">
+            <i class="fa fa-plus"></i>添加任务
+          </button>
+        </div>
+        
+        <div id="dailyTasks" class="space-y-2">
+          <p class="text-gray-500 text-sm text-center py-4">暂无每日任务</p>
+        </div>
+      </div>
+      
+      <!-- 月任务/月目标 -->
+      <div class="lg:col-span-6 bg-white rounded-xl p-4 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+            <i class="fa fa-trophy text-accent"></i>月目标
+          </h2>
+          <button id="addMonthlyGoal" class="p-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors text-sm flex items-center gap-1">
+            <i class="fa fa-plus"></i>设置目标
+          </button>
+        </div>
+        
+        <div id="monthlyGoals" class="space-y-3">
+          <p class="text-gray-500 text-sm text-center py-4">暂无月目标</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 第三排：日计划 + 复盘 -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+      <!-- 日计划 -->
+      <div class="lg:col-span-6 bg-white rounded-xl p-4 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+            <i class="fa fa-calendar-plus-o text-primary"></i>日计划
+          </h2>
+          <button id="addPlan" class="p-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors text-sm flex items-center gap-1">
+            <i class="fa fa-plus"></i>添加计划
+          </button>
+        </div>
+        
+        <div id="dailyPlans" class="space-y-2">
+          <p class="text-gray-500 text-sm text-center py-4">暂无日计划</p>
+        </div>
+      </div>
+      
+      <!-- 复盘 -->
+      <div class="lg:col-span-6 bg-white rounded-xl p-4 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+            <i class="fa fa-refresh text-purple-600"></i>复盘
+          </h2>
+          <button id="addReview" class="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm flex items-center gap-1">
+            <i class="fa fa-plus"></i>添加复盘
+          </button>
+        </div>
+        
+        <div id="reviews" class="space-y-3">
+          <p class="text-gray-500 text-sm text-center py-4">暂无复盘记录</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 第四排：打卡数据表格 + 日历说明 -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- 打卡数据表格 -->
+      <div class="lg:col-span-8 bg-white rounded-xl p-4 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+            <i class="fa fa-table text-primary"></i>打卡数据表格
+          </h2>
+          <button id="exportExcel" class="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm flex items-center gap-1">
+            <i class="fa fa-download"></i>导出Excel
+          </button>
+        </div>
+        
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-gray-50">
+                <th class="p-2 text-left font-medium text-gray-700 rounded-tl-lg">序号</th>
+                <th class="p-2 text-left font-medium text-gray-700">项目</th>
+                <th class="p-2 text-left font-medium text-gray-700">日期</th>
+                <th class="p-2 text-left font-medium text-gray-700 rounded-tr-lg">时长(分钟)</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody" class="divide-y divide-gray-100">
+              <tr>
+                <td colspan="4" class="p-4 text-center text-gray-500">暂无打卡数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- 日历说明 -->
+      <div class="lg:col-span-4 bg-white rounded-xl p-4 card-shadow">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <i class="fa fa-info-circle text-primary"></i>日历说明
+        </h2>
+        
+        <div class="space-y-3 text-sm">
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 bg-primary/20 rounded"></div>
+            <span>当天日期</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 bg-blue-50 rounded"></div>
+            <span>已打卡日期</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 bg-gray-100 rounded"></div>
+            <span>未打卡日期</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <i class="fa fa-ban text-gray-400"></i>
+            <span>未来日期不可打卡</span>
+          </div>
+          
+          <div class="mt-4 pt-4 border-t border-gray-100">
+            <p class="font-medium mb-2">使用说明：</p>
+            <ul class="space-y-1 text-gray-600 list-disc pl-4">
+              <li>点击日历日期进行打卡</li>
+              <li>支持自定义学习时长</li>
+              <li>数据自动保存，刷新不丢失</li>
+              <li>可导出Excel表格备份数据</li>
+              <li>支持按时间段统计项目时长</li>
+              <li>可添加每日任务和月目标</li>
+              <li>可创建日计划并标记完成</li>
+              <li>可添加复盘记录（收获、问题、改进）</li>
+              <li>导出Excel包含所有数据类型</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 任务弹窗 -->
+    <div id="taskModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+        <h3 class="text-lg font-semibold mb-4" id="taskModalTitle">添加任务</h3>
+        <input type="hidden" id="taskId">
+        <input type="hidden" id="taskType">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">任务名称</label>
+            <input type="text" id="taskName" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="请输入任务名称">
+          </div>
+          <div id="goalTypeDiv" class="hidden">
+            <label class="block text-sm font-medium text-gray-700 mb-1">目标类型</label>
+            <select id="goalType" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none">
+              <option value="duration">学习时长(分钟)</option>
+              <option value="count">完成次数</option>
+              <option value="pages">阅读页数</option>
+            </select>
+          </div>
+          <div id="goalTargetDiv" class="hidden">
+            <label class="block text-sm font-medium text-gray-700 mb-1">目标值</label>
+            <input type="number" id="goalTarget" min="1" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="请输入目标值">
+          </div>
+          <div class="flex gap-2 mt-4">
+            <button id="cancelTask" class="flex-1 p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors">取消</button>
+            <button id="confirmTask" class="flex-1 p-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">确认</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 日计划弹窗 -->
+    <div id="planModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+        <h3 class="text-lg font-semibold mb-4">添加日计划</h3>
+        <input type="hidden" id="planId">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">计划名称</label>
+            <input type="text" id="planName" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="如：背单词50个">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">计划描述</label>
+            <textarea id="planDesc" rows="3" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="详细描述计划内容"></textarea>
+          </div>
+          <div class="flex gap-2 mt-4">
+            <button id="cancelPlan" class="flex-1 p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors">取消</button>
+            <button id="confirmPlan" class="flex-1 p-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">确认</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 复盘弹窗 -->
+    <div id="reviewModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+        <h3 class="text-lg font-semibold mb-4">添加复盘</h3>
+        <input type="hidden" id="reviewId">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">复盘主题</label>
+            <input type="text" id="reviewTitle" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="如：第1天复盘">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">今日收获</label>
+            <textarea id="reviewGain" rows="3" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="今天学到了什么..."></textarea>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">存在问题</label>
+            <textarea id="reviewProblem" rows="3" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="遇到了什么困难..."></textarea>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">改进计划</label>
+            <textarea id="reviewPlan" rows="3" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" placeholder="明天如何改进..."></textarea>
+          </div>
+          <div class="flex gap-2 mt-4">
+            <button id="cancelReview" class="flex-1 p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors">取消</button>
+            <button id="confirmReview" class="flex-1 p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">确认</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 数据存储
+    let checkData = JSON.parse(localStorage.getItem('studyCheckData')) || [];
+    let dailyTasks = JSON.parse(localStorage.getItem('dailyTasks')) || [];
+    let monthlyGoals = JSON.parse(localStorage.getItem('monthlyGoals')) || [];
+    let dailyPlans = JSON.parse(localStorage.getItem('dailyPlans')) || [];
+    let reviews = JSON.parse(localStorage.getItem('reviews')) || [];
+    
+    // 当前日期
+    const today = new Date();
+    let currentYear = today.getFullYear();
+    let currentMonth = today.getMonth();
+    
+    // DOM元素
+    const calendarGrid = document.getElementById('calendarGrid');
+    const currentMonthEl = document.getElementById('currentMonth');
+    const prevMonthBtn = document.getElementById('prevMonth');
+    const nextMonthBtn = document.getElementById('nextMonth');
+    const checkModal = document.getElementById('checkModal');
+    const modalDate = document.getElementById('modalDate');
+    const cancelCheck = document.getElementById('cancelCheck');
+    const confirmCheck = document.getElementById('confirmCheck');
+    const studyItem = document.getElementById('studyItem');
+    const studyDuration = document.getElementById('studyDuration');
+    const todayDate = document.getElementById('todayDate');
+    const todayTotalDuration = document.getElementById('todayTotalDuration');
+    const utilizationPercent = document.getElementById('utilizationPercent');
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    const searchStats = document.getElementById('searchStats');
+    const statsResult = document.getElementById('statsResult');
+    const tableBody = document.getElementById('tableBody');
+    const exportExcel = document.getElementById('exportExcel');
+    const dailyTasksEl = document.getElementById('dailyTasks');
+    const monthlyGoalsEl = document.getElementById('monthlyGoals');
+    const addDailyTaskBtn = document.getElementById('addDailyTask');
+    const addMonthlyGoalBtn = document.getElementById('addMonthlyGoal');
+    const taskModal = document.getElementById('taskModal');
+    const taskModalTitle = document.getElementById('taskModalTitle');
+    const taskId = document.getElementById('taskId');
+    const taskType = document.getElementById('taskType');
+    const taskName = document.getElementById('taskName');
+    const goalType = document.getElementById('goalType');
+    const goalTarget = document.getElementById('goalTarget');
+    const goalTypeDiv = document.getElementById('goalTypeDiv');
+    const goalTargetDiv = document.getElementById('goalTargetDiv');
+    const cancelTask = document.getElementById('cancelTask');
+    const confirmTask = document.getElementById('confirmTask');
+    const dailyPlansEl = document.getElementById('dailyPlans');
+    const reviewsEl = document.getElementById('reviews');
+    const addPlanBtn = document.getElementById('addPlan');
+    const addReviewBtn = document.getElementById('addReview');
+    const planModal = document.getElementById('planModal');
+    const reviewModal = document.getElementById('reviewModal');
+    
+    // 初始化今日日期
+    todayDate.textContent = formatDate(today);
+    startDate.value = getFirstDayOfMonth(currentYear, currentMonth);
+    endDate.value = formatDate(today);
+    
+    // 颜色映射
+    const itemColors = {
+      '英语': 'bg-blue-100 text-blue-800',
+      '数学': 'bg-green-100 text-green-800',
+      '计算机二级': 'bg-purple-100 text-purple-800',
+      '经济学原理': 'bg-yellow-100 text-yellow-800',
+      '财务管理论文': 'bg-red-100 text-red-800'
+    };
+    
+    // 初始化图表
+    let utilizationChart;
+    initChart();
+    
+    // 初始化日历
+    renderCalendar();
+    // 刷新所有数据
+    refreshAllData();
+    // 初始化任务模块
+    renderDailyTasks();
+    renderMonthlyGoals();
+    renderDailyPlans();
+    renderReviews();
+    
+    // 月份切换
+    prevMonthBtn.addEventListener('click', () => {
+      currentMonth--;
+      if (currentMonth < 0) {
+        currentMonth = 11;
+        currentYear--;
+      }
+      renderCalendar();
+    });
+    
+    nextMonthBtn.addEventListener('click', () => {
+      currentMonth++;
+      if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+      renderCalendar();
+    });
+    
+    // 打卡弹窗
+    let selectedDate = '';
+    calendarGrid.addEventListener('click', (e) => {
+      const dayEl = e.target.closest('.calendar-day');
+      if (!dayEl) return;
+      
+      const date = dayEl.dataset.date;
+      if (!date || isFutureDate(date)) {
+        alert('未来日期不可打卡！');
+        return;
+      }
+      
+      selectedDate = date;
+      modalDate.textContent = `${date} 打卡`;
+      studyDuration.value = '';
+      checkModal.style.display = 'flex';
+    });
+    
+    cancelCheck.addEventListener('click', () => {
+      checkModal.style.display = 'none';
+    });
+    
+    confirmCheck.addEventListener('click', () => {
+      const item = studyItem.value;
+      const duration = studyDuration.value.trim();
+      
+      if (!duration || isNaN(duration) || Number(duration) < 1) {
+        alert('请输入有效的时长！');
+        return;
+      }
+      
+      // 添加数据
+      checkData.push({
+        date: selectedDate,
+        item: item,
+        duration: Number(duration)
+      });
+      
+      // 保存数据
+      localStorage.setItem('studyCheckData', JSON.stringify(checkData));
+      
+      // 刷新界面
+      renderCalendar();
+      refreshAllData();
+      
+      checkModal.style.display = 'none';
+    });
+    
+    // 统计查询
+    searchStats.addEventListener('click', () => {
+      const start = startDate.value;
+      const end = endDate.value;
+      
+      if (!start || !end) {
+        alert('请选择完整的日期范围！');
+        return;
+      }
+      
+      if (start > end) {
+        alert('开始日期不能晚于结束日期！');
+        return;
+      }
+      
+      calculateStats(start, end);
+    });
+    
+    // 导出Excel
+    exportExcel.addEventListener('click', exportToExcel);
+    
+    // 任务相关事件
+    addDailyTaskBtn.addEventListener('click', () => openTaskModal('daily'));
+    addMonthlyGoalBtn.addEventListener('click', () => openTaskModal('monthly'));
+    cancelTask.addEventListener('click', closeTaskModal);
+    confirmTask.addEventListener('click', saveTask);
+    
+    dailyTasksEl.addEventListener('click', (e) => {
+      const target = e.target;
+      if (target.classList.contains('complete-task')) {
+        const taskId = target.dataset.taskId;
+        toggleTaskComplete(taskId, 'daily');
+      } else if (target.classList.contains('delete-task')) {
+        const taskId = target.dataset.taskId;
+        deleteTask(taskId, 'daily');
+      }
+    });
+    
+    monthlyGoalsEl.addEventListener('click', (e) => {
+      const target = e.target;
+      if (target.classList.contains('delete-goal')) {
+        const goalId = target.dataset.goalId;
+        deleteTask(goalId, 'monthly');
+      }
+    });
+    
+    // 日计划事件
+    addPlanBtn.addEventListener('click', openPlanModal);
+    dailyPlansEl.addEventListener('click', (e) => {
+      const target = e.target;
+      if (target.classList.contains('complete-plan')) {
+        const planId = target.dataset.planId;
+        togglePlanComplete(planId);
+      } else if (target.classList.contains('delete-plan')) {
+        const planId = target.dataset.planId;
+        deletePlan(planId);
+      }
+    });
+    
+    // 复盘事件
+    addReviewBtn.addEventListener('click', openReviewModal);
+    reviewsEl.addEventListener('click', (e) => {
+      const target = e.target;
+      if (target.classList.contains('delete-review')) {
+        const reviewId = target.dataset.reviewId;
+        deleteReview(reviewId);
+      }
+    });
+    
+    // 渲染日历
+    function renderCalendar() {
+      const firstDay = new Date(currentYear, currentMonth, 1);
+      const lastDay = new Date(currentYear, currentMonth + 1, 0);
+      const daysInMonth = lastDay.getDate();
+      const firstDayOfWeek = firstDay.getDay();
+      
+      currentMonthEl.textContent = `${currentYear}年${currentMonth + 1}月`;
+      
+      calendarGrid.innerHTML = '';
+      
+      // 填充空白日期
+      for (let i = 0; i < firstDayOfWeek; i++) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'calendar-day bg-transparent border-0';
+        calendarGrid.appendChild(emptyEl);
+      }
+      
+      // 填充日期
+      for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(currentYear, currentMonth, day);
+        const dateStr = formatDate(date);
+        const isToday = dateStr === formatDate(today);
+        const isFuture = isFutureDate(dateStr);
+        
+        const dayEl = document.createElement('div');
+        dayEl.className = 'calendar-day cursor-pointer hover:bg-gray-50';
+        dayEl.dataset.date = dateStr;
+        
+        if (isToday) {
+          dayEl.classList.add('calendar-day-active');
+        }
+        
+        // 日期数字
+        const dateNum = document.createElement('div');
+        dateNum.className = `text-sm font-medium ${isToday ? 'text-primary' : 'text-gray-700'} ${isFuture ? 'text-gray-300' : ''}`;
+        dateNum.textContent = day;
+        dayEl.appendChild(dateNum);
+        
+        // 添加打卡记录
+        const dayRecords = checkData.filter(item => item.date === dateStr);
+        if (dayRecords.length > 0) {
+          dayEl.classList.add('bg-blue-50', 'border-primary/30');
+          
+          dayRecords.slice(0, 2).forEach(record => {
+            const tag = document.createElement('div');
+            tag.className = `tag ${itemColors[record.item] || 'bg-gray-100 text-gray-800'} mt-1`;
+            tag.textContent = record.item;
+            dayEl.appendChild(tag);
+          });
+          
+          if (dayRecords.length > 2) {
+            const more = document.createElement('div');
+            more.className = 'tag bg-gray-100 text-gray-500 mt-1';
+            more.textContent = `+${dayRecords.length - 2}`;
+            dayEl.appendChild(more);
+          }
+        }
+        
+        calendarGrid.appendChild(dayEl);
+      }
+    }
+    
+    // 刷新所有数据
+    function refreshAllData() {
+      updateTodayStats();
+      updateTable();
+      calculateStats(startDate.value, endDate.value);
+    }
+    
+    // 更新今日统计
+    function updateTodayStats() {
+      const todayStr = formatDate(today);
+      const todayRecords = checkData.filter(item => item.date === todayStr);
+      
+      const total = todayRecords.reduce((sum, record) => sum + record.duration, 0);
+      todayTotalDuration.textContent = `${total} 分钟`;
+      
+      // 计算利用率
+      const utilization = (total / 1440 * 100).toFixed(2);
+      utilizationPercent.textContent = `${utilization}%`;
+      
+      // 更新图表
+      utilizationChart.data.datasets[0].data = [total, 1440 - total];
+      utilizationChart.update();
+    }
+    
+    // 初始化图表
+    function initChart() {
+      const ctx = document.getElementById('utilizationChart').getContext('2d');
+      utilizationChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['学习时间', '剩余时间'],
+          datasets: [{
+            data: [0, 1440],
+            backgroundColor: ['#4F46E5', '#E5E7EB'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '70%',
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                boxWidth: 12,
+                font: {
+                  size: 10
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+    
+    // 计算项目统计
+    function calculateStats(start, end) {
+      const filtered = checkData.filter(item => item.date >= start && item.date <= end);
+      
+      // 按项目分组
+      const stats = {};
+      filtered.forEach(record => {
+        if (!stats[record.item]) {
+          stats[record.item] = 0;
+        }
+        stats[record.item] += record.duration;
+      });
+      
+      // 渲染结果
+      statsResult.innerHTML = '';
+      
+      if (Object.keys(stats).length === 0) {
+        statsResult.innerHTML = '<p class="text-gray-500 text-sm text-center">该时间段无数据</p>';
+        return;
+      }
+      
+      for (const [item, duration] of Object.entries(stats)) {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'p-2 bg-gray-50 rounded-lg flex justify-between items-center';
+        itemEl.innerHTML = `
+          <span class="text-sm ${itemColors[item] || 'text-gray-700'} px-2 py-1 rounded">${item}</span>
+          <span class="font-medium">${duration} 分钟</span>
+        `;
+        statsResult.appendChild(itemEl);
+      }
+    }
+    
+    // 更新表格
+    function updateTable() {
+      if (checkData.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">暂无打卡数据</td></tr>';
+        return;
+      }
+      
+      tableBody.innerHTML = '';
+      checkData.forEach((record, index) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50';
+        tr.innerHTML = `
+          <td class="p-2 text-gray-700">${index + 1}</td>
+          <td class="p-2"><span class="tag ${itemColors[record.item] || 'bg-gray-100 text-gray-800'}">${record.item}</span></td>
+          <td class="p-2 text-gray-700">${record.date}</td>
+          <td class="p-2 text-gray-700">${record.duration}</td>
+        `;
+        tableBody.appendChild(tr);
+      });
+    }
+    
+    // 导出Excel
+    function exportToExcel() {
+      if (checkData.length === 0) {
+        alert('暂无数据可导出！');
+        return;
+      }
+      
+      const exportData = checkData.map((item, index) => ({
+        '序号': index + 1,
+        '项目': item.item,
+        '日期': item.date,
+        '时长(分钟)': item.duration
+      }));
+      
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, '学习打卡数据');
+      XLSX.writeFile(workbook, '学习打卡数据.xlsx');
+    }
+    
+    // 工具函数
+    function formatDate(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    function getFirstDayOfMonth(year, month) {
+      return `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    }
+    
+    function isFutureDate(dateStr) {
+      return dateStr > formatDate(today);
+    }
+    
+    // 任务管理函数
+    function openTaskModal(type) {
+      taskModalTitle.textContent = type === 'daily' ? '添加每日任务' : '设置月目标';
+      taskType.value = type;
+      taskId.value = '';
+      taskName.value = '';
+      goalType.value = 'duration';
+      goalTarget.value = '';
+      
+      if (type === 'daily') {
+        goalTypeDiv.classList.add('hidden');
+        goalTargetDiv.classList.add('hidden');
+      } else {
+        goalTypeDiv.classList.remove('hidden');
+        goalTargetDiv.classList.remove('hidden');
+      }
+      
+      taskModal.style.display = 'flex';
+    }
+    
+    function closeTaskModal() {
+      taskModal.style.display = 'none';
+    }
+    
+    function saveTask() {
+      const name = taskName.value.trim();
+      if (!name) {
+        alert('请输入任务名称！');
+        return;
+      }
+      
+      if (taskType.value === 'monthly') {
+        const target = goalTarget.value.trim();
+        if (!target || isNaN(target) || Number(target) < 1) {
+          alert('请输入有效的目标值！');
+          return;
+        }
+      }
+      
+      if (taskId.value) {
+        // 编辑任务
+        if (taskType.value === 'daily') {
+          dailyTasks = dailyTasks.map(t => t.id === taskId.value ? { ...t, name } : t);
+        } else {
+          monthlyGoals = monthlyGoals.map(g => g.id === taskId.value ? { ...g, name, goalType: goalType.value, target: Number(goalTarget.value) } : g);
+        }
+      } else {
+        // 添加新任务
+        const newTask = {
+          id: Date.now().toString(),
+          name,
+          completed: taskType.value === 'daily' ? false : undefined,
+          createdAt: formatDate(today)
+        };
+        
+        if (taskType.value === 'monthly') {
+          newTask.goalType = goalType.value;
+          newTask.target = Number(goalTarget.value);
+        }
+        
+        if (taskType.value === 'daily') {
+          dailyTasks.push(newTask);
+        } else {
+          monthlyGoals.push(newTask);
+        }
+      }
+      
+      // 保存数据
+      localStorage.setItem('dailyTasks', JSON.stringify(dailyTasks));
+      localStorage.setItem('monthlyGoals', JSON.stringify(monthlyGoals));
+      
+      // 刷新界面
+      renderDailyTasks();
+      renderMonthlyGoals();
+      
+      closeTaskModal();
+    }
+    
+    function toggleTaskComplete(taskId, type) {
+      if (type === 'daily') {
+        dailyTasks = dailyTasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t);
+        localStorage.setItem('dailyTasks', JSON.stringify(dailyTasks));
+        renderDailyTasks();
+      }
+    }
+    
+    function deleteTask(taskId, type) {
+      if (confirm('确定要删除这个任务吗？')) {
+        if (type === 'daily') {
+          dailyTasks = dailyTasks.filter(t => t.id !== taskId);
+          localStorage.setItem('dailyTasks', JSON.stringify(dailyTasks));
+          renderDailyTasks();
+        } else {
+          monthlyGoals = monthlyGoals.filter(g => g.id !== taskId);
+          localStorage.setItem('monthlyGoals', JSON.stringify(monthlyGoals));
+          renderMonthlyGoals();
+        }
+      }
+    }
+    
+    function renderDailyTasks() {
+      if (dailyTasks.length === 0) {
+        dailyTasksEl.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">暂无每日任务</p>';
+        return;
+      }
+      
+      dailyTasksEl.innerHTML = '';
+      dailyTasks.forEach(task => {
+        const taskEl = document.createElement('div');
+        taskEl.className = `p-3 bg-gray-50 rounded-lg flex items-center gap-3 ${task.completed ? 'opacity-60' : ''}`;
+        taskEl.innerHTML = `
+          <button class="complete-task flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${task.completed ? 'bg-secondary border-secondary' : 'border-gray-300 hover:border-secondary'}" data-task-id="${task.id}">
+            ${task.completed ? '<i class="fa fa-check text-white text-xs"></i>' : ''}
+          </button>
+          <span class="flex-1 text-sm ${task.completed ? 'line-through text-gray-500' : 'text-gray-700'}">${task.name}</span>
+          <button class="delete-task p-1 text-gray-400 hover:text-red-500 transition-colors" data-task-id="${task.id}">
+            <i class="fa fa-trash-o"></i>
+          </button>
+        `;
+        dailyTasksEl.appendChild(taskEl);
+      });
+    }
+    
+    function renderMonthlyGoals() {
+      if (monthlyGoals.length === 0) {
+        monthlyGoalsEl.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">暂无月目标</p>';
+        return;
+      }
+      
+      monthlyGoalsEl.innerHTML = '';
+      const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+      
+      monthlyGoals.forEach(goal => {
+        // 计算当前月份的进度
+        let progress = 0;
+        const goalTypeLabels = {
+          duration: '学习时长(分钟)',
+          count: '完成次数',
+          pages: '阅读页数'
+        };
+        
+        if (goal.goalType === 'duration') {
+          const monthData = checkData.filter(d => d.date.startsWith(currentMonthStr));
+          progress = monthData.reduce((sum, d) => sum + d.duration, 0);
+        } else if (goal.goalType === 'count') {
+          const monthData = checkData.filter(d => d.date.startsWith(currentMonthStr));
+          progress = monthData.length;
+        }
+        
+        const percentage = Math.min((progress / goal.target) * 100, 100);
+        
+        const goalEl = document.createElement('div');
+        goalEl.className = 'p-4 bg-gray-50 rounded-lg';
+        goalEl.innerHTML = `
+          <div class="flex justify-between items-start mb-2">
+            <div>
+              <p class="font-medium text-gray-800">${goal.name}</p>
+              <p class="text-xs text-gray-500">目标：${goal.target} ${goalTypeLabels[goal.goalType]}</p>
+            </div>
+            <button class="delete-goal p-1 text-gray-400 hover:text-red-500 transition-colors" data-goal-id="${goal.id}">
+              <i class="fa fa-trash-o"></i>
+            </button>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2">
+            <div class="bg-accent h-2 rounded-full transition-all duration-500" style="width: ${percentage}%"></div>
+          </div>
+          <div class="flex justify-between mt-1">
+            <span class="text-xs text-gray-500">已完成 ${progress}</span>
+            <span class="text-xs font-medium text-accent">${percentage.toFixed(1)}%</span>
+          </div>
+        `;
+        monthlyGoalsEl.appendChild(goalEl);
+      });
+    }
+    
+    // 日计划函数
+    function openPlanModal() {
+      document.getElementById('planId').value = '';
+      document.getElementById('planName').value = '';
+      document.getElementById('planDesc').value = '';
+      planModal.style.display = 'flex';
+    }
+    
+    document.getElementById('cancelPlan').addEventListener('click', () => {
+      planModal.style.display = 'none';
+    });
+    
+    document.getElementById('confirmPlan').addEventListener('click', () => {
+      const name = document.getElementById('planName').value.trim();
+      if (!name) {
+        alert('请输入计划名称！');
+        return;
+      }
+      
+      const newPlan = {
+        id: Date.now().toString(),
+        name,
+        desc: document.getElementById('planDesc').value.trim(),
+        completed: false,
+        date: formatDate(today)
+      };
+      
+      dailyPlans.push(newPlan);
+      localStorage.setItem('dailyPlans', JSON.stringify(dailyPlans));
+      renderDailyPlans();
+      planModal.style.display = 'none';
+    });
+    
+    function togglePlanComplete(planId) {
+      dailyPlans = dailyPlans.map(p => p.id === planId ? { ...p, completed: !p.completed } : p);
+      localStorage.setItem('dailyPlans', JSON.stringify(dailyPlans));
+      renderDailyPlans();
+    }
+    
+    function deletePlan(planId) {
+      if (confirm('确定要删除这个计划吗？')) {
+        dailyPlans = dailyPlans.filter(p => p.id !== planId);
+        localStorage.setItem('dailyPlans', JSON.stringify(dailyPlans));
+        renderDailyPlans();
+      }
+    }
+    
+    function renderDailyPlans() {
+      const todayStr = formatDate(today);
+      const todayPlans = dailyPlans.filter(p => p.date === todayStr);
+      
+      if (todayPlans.length === 0) {
+        dailyPlansEl.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">暂无日计划</p>';
+        return;
+      }
+      
+      dailyPlansEl.innerHTML = '';
+      todayPlans.forEach(plan => {
+        const planEl = document.createElement('div');
+        planEl.className = `p-3 bg-gray-50 rounded-lg ${plan.completed ? 'opacity-60' : ''}`;
+        planEl.innerHTML = `
+          <div class="flex items-start gap-3">
+            <button class="complete-plan flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors mt-0.5 ${plan.completed ? 'bg-primary border-primary' : 'border-gray-300 hover:border-primary'}" data-plan-id="${plan.id}">
+              ${plan.completed ? '<i class="fa fa-check text-white text-xs"></i>' : ''}
+            </button>
+            <div class="flex-1">
+              <p class="font-medium text-gray-800 text-sm">${plan.name}</p>
+              ${plan.desc ? `<p class="text-xs text-gray-500 mt-1">${plan.desc}</p>` : ''}
+            </div>
+            <button class="delete-plan p-1 text-gray-400 hover:text-red-500 transition-colors" data-plan-id="${plan.id}">
+              <i class="fa fa-trash-o"></i>
+            </button>
+          </div>
+        `;
+        dailyPlansEl.appendChild(planEl);
+      });
+    }
+    
+    // 复盘函数
+    function openReviewModal() {
+      document.getElementById('reviewId').value = '';
+      document.getElementById('reviewTitle').value = '';
+      document.getElementById('reviewGain').value = '';
+      document.getElementById('reviewProblem').value = '';
+      document.getElementById('reviewPlan').value = '';
+      reviewModal.style.display = 'flex';
+    }
+    
+    document.getElementById('cancelReview').addEventListener('click', () => {
+      reviewModal.style.display = 'none';
+    });
+    
+    document.getElementById('confirmReview').addEventListener('click', () => {
+      const title = document.getElementById('reviewTitle').value.trim();
+      if (!title) {
+        alert('请输入复盘主题！');
+        return;
+      }
+      
+      const newReview = {
+        id: Date.now().toString(),
+        title,
+        gain: document.getElementById('reviewGain').value.trim(),
+        problem: document.getElementById('reviewProblem').value.trim(),
+        plan: document.getElementById('reviewPlan').value.trim(),
+        date: formatDate(today)
+      };
+      
+      reviews.push(newReview);
+      localStorage.setItem('reviews', JSON.stringify(reviews));
+      renderReviews();
+      reviewModal.style.display = 'none';
+    });
+    
+    function deleteReview(reviewId) {
+      if (confirm('确定要删除这个复盘吗？')) {
+        reviews = reviews.filter(r => r.id !== reviewId);
+        localStorage.setItem('reviews', JSON.stringify(reviews));
+        renderReviews();
+      }
+    }
+    
+    function renderReviews() {
+      if (reviews.length === 0) {
+        reviewsEl.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">暂无复盘记录</p>';
+        return;
+      }
+      
+      reviewsEl.innerHTML = '';
+      const sortedReviews = [...reviews].sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      sortedReviews.forEach(review => {
+        const reviewEl = document.createElement('div');
+        reviewEl.className = 'p-4 bg-gray-50 rounded-lg';
+        reviewEl.innerHTML = `
+          <div class="flex justify-between items-start mb-2">
+            <div>
+              <p class="font-medium text-gray-800">${review.title}</p>
+              <p class="text-xs text-gray-500">${review.date}</p>
+            </div>
+            <button class="delete-review p-1 text-gray-400 hover:text-red-500 transition-colors" data-review-id="${review.id}">
+              <i class="fa fa-trash-o"></i>
+            </button>
+          </div>
+          ${review.gain ? `<div class="mb-2"><p class="text-xs text-gray-500 mb-1">今日收获</p><p class="text-sm text-gray-700">${review.gain}</p></div>` : ''}
+          ${review.problem ? `<div class="mb-2"><p class="text-xs text-gray-500 mb-1">存在问题</p><p class="text-sm text-gray-700">${review.problem}</p></div>` : ''}
+          ${review.plan ? `<div><p class="text-xs text-gray-500 mb-1">改进计划</p><p class="text-sm text-gray-700">${review.plan}</p></div>` : ''}
+        `;
+        reviewsEl.appendChild(reviewEl);
+      });
+    }
+    
+    // 更新导出Excel功能
+    function exportToExcel() {
+      const workbook = XLSX.utils.book_new();
+      
+      // 打卡数据
+      if (checkData.length > 0) {
+        const checkExportData = checkData.map((item, index) => ({
+          '序号': index + 1,
+          '项目': item.item,
+          '日期': item.date,
+          '时长(分钟)': item.duration
+        }));
+        const checkSheet = XLSX.utils.json_to_sheet(checkExportData);
+        XLSX.utils.book_append_sheet(workbook, checkSheet, '打卡记录');
+      }
+      
+      // 每日任务
+      if (dailyTasks.length > 0) {
+        const taskExportData = dailyTasks.map((item, index) => ({
+          '序号': index + 1,
+          '任务名称': item.name,
+          '状态': item.completed ? '已完成' : '未完成',
+          '创建日期': item.createdAt
+        }));
+        const taskSheet = XLSX.utils.json_to_sheet(taskExportData);
+        XLSX.utils.book_append_sheet(workbook, taskSheet, '每日任务');
+      }
+      
+      // 月目标
+      if (monthlyGoals.length > 0) {
+        const goalTypeLabels = { duration: '学习时长', count: '完成次数', pages: '阅读页数' };
+        const goalExportData = monthlyGoals.map((item, index) => ({
+          '序号': index + 1,
+          '目标名称': item.name,
+          '目标类型': goalTypeLabels[item.goalType] || item.goalType,
+          '目标值': item.target,
+          '创建日期': item.createdAt
+        }));
+        const goalSheet = XLSX.utils.json_to_sheet(goalExportData);
+        XLSX.utils.book_append_sheet(workbook, goalSheet, '月目标');
+      }
+      
+      // 日计划
+      if (dailyPlans.length > 0) {
+        const planExportData = dailyPlans.map((item, index) => ({
+          '序号': index + 1,
+          '计划名称': item.name,
+          '描述': item.desc || '-',
+          '状态': item.completed ? '已完成' : '未完成',
+          '日期': item.date
+        }));
+        const planSheet = XLSX.utils.json_to_sheet(planExportData);
+        XLSX.utils.book_append_sheet(workbook, planSheet, '日计划');
+      }
+      
+      // 复盘记录
+      if (reviews.length > 0) {
+        const reviewExportData = reviews.map((item, index) => ({
+          '序号': index + 1,
+          '主题': item.title,
+          '日期': item.date,
+          '今日收获': item.gain || '-',
+          '存在问题': item.problem || '-',
+          '改进计划': item.plan || '-'
+        }));
+        const reviewSheet = XLSX.utils.json_to_sheet(reviewExportData);
+        XLSX.utils.book_append_sheet(workbook, reviewSheet, '复盘记录');
+      }
+      
+      if (workbook.SheetNames.length === 0) {
+        alert('暂无数据可导出！');
+        return;
+      }
+      
+      XLSX.writeFile(workbook, '学习打卡数据.xlsx');
+    }
+  </script>
+</body>
+</html>
